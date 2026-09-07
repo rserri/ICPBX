@@ -1,0 +1,245 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------------------------- */
+/* THEME: LIGHT MODE                                                          */
+/* -------------------------------------------------------------------------- */
+html.theme-light,
+body.theme-light,
+.theme-light {
+  color-scheme: light;
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Backgrounds in Light Mode */
+.theme-light .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+.theme-light .bg-slate-900,
+.theme-light .bg-slate-900\/50,
+.theme-light .bg-slate-900\/80,
+.theme-light .bg-slate-900\/90 {
+  background-color: #ffffff !important;
+}
+.theme-light .bg-slate-800,
+.theme-light .bg-slate-800\/60,
+.theme-light .bg-slate-800\/80,
+.theme-light .bg-slate-800\/90 {
+  background-color: #f1f5f9 !important;
+}
+.theme-light .bg-slate-950\/50,
+.theme-light .bg-slate-950\/80 {
+  background-color: #f8fafc !important;
+}
+
+/* Borders in Light Mode */
+.theme-light .border-slate-800,
+.theme-light .border-slate-700,
+.theme-light .border-slate-800\/50,
+.theme-light .border-slate-800\/60,
+.theme-light .border-slate-800\/80,
+.theme-light .border-slate-700\/80,
+.theme-light .border-slate-700\/70 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Text in Light Mode */
+.theme-light .text-white,
+.theme-light .text-slate-100,
+.theme-light .text-slate-200 {
+  color: #0f172a !important;
+}
+.theme-light .text-slate-300,
+.theme-light .text-slate-400 {
+  color: #475569 !important;
+}
+.theme-light .text-slate-500 {
+  color: #64748b !important;
+}
+.theme-light .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* Hover States in Light Mode */
+.theme-light .hover\:bg-slate-800:hover,
+.theme-light .hover\:bg-slate-700:hover,
+.theme-light .hover\:bg-slate-800\/60:hover,
+.theme-light .hover\:bg-slate-800\/70:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+.theme-light .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+
+/* Inputs & Forms in Light Mode */
+.theme-light input,
+.theme-light select,
+.theme-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+.theme-light input::placeholder,
+.theme-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Status Badges in Light Mode */
+.theme-light .bg-emerald-950,
+.theme-light .bg-emerald-950\/80,
+.theme-light .bg-emerald-950\/30 {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #065f46 !important;
+}
+.theme-light .text-emerald-300,
+.theme-light .text-emerald-400 {
+  color: #047857 !important;
+}
+.theme-light .bg-amber-950,
+.theme-light .bg-amber-950\/80,
+.theme-light .bg-amber-950\/30 {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #92400e !important;
+}
+.theme-light .text-amber-300,
+.theme-light .text-amber-400 {
+  color: #b45309 !important;
+}
+.theme-light .bg-rose-950,
+.theme-light .bg-rose-950\/80,
+.theme-light .bg-rose-950\/30 {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+  color: #9f1239 !important;
+}
+.theme-light .text-rose-300,
+.theme-light .text-rose-400 {
+  color: #be123c !important;
+}
+.theme-light .bg-sky-950,
+.theme-light .bg-sky-950\/80,
+.theme-light .bg-sky-950\/30 {
+  background-color: #f0f9ff !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
+}
+.theme-light .text-sky-300,
+.theme-light .text-sky-400 {
+  color: #0284c7 !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* THEME: HIGH-CONTRAST MODE                                                  */
+/* -------------------------------------------------------------------------- */
+html.theme-high-contrast,
+body.theme-high-contrast,
+.theme-high-contrast {
+  color-scheme: dark;
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+/* Backgrounds in High Contrast */
+.theme-high-contrast .bg-slate-950,
+.theme-high-contrast .bg-slate-900,
+.theme-high-contrast .bg-slate-900\/50,
+.theme-high-contrast .bg-slate-900\/80,
+.theme-high-contrast .bg-slate-900\/90,
+.theme-high-contrast .bg-slate-950\/50,
+.theme-high-contrast .bg-slate-950\/80 {
+  background-color: #000000 !important;
+}
+.theme-high-contrast .bg-slate-800,
+.theme-high-contrast .bg-slate-800\/60,
+.theme-high-contrast .bg-slate-800\/80,
+.theme-high-contrast .bg-slate-800\/90 {
+  background-color: #0f172a !important;
+}
+
+/* Crisp High-Contrast Borders */
+.theme-high-contrast .border-slate-800,
+.theme-high-contrast .border-slate-700,
+.theme-high-contrast .border-slate-800\/50,
+.theme-high-contrast .border-slate-800\/60,
+.theme-high-contrast .border-slate-800\/80,
+.theme-high-contrast .border-slate-700\/80,
+.theme-high-contrast .border-slate-700\/70 {
+  border-color: #ffffff !important;
+  border-width: 1.5px !important;
+}
+
+/* High Contrast Text */
+.theme-high-contrast .text-white,
+.theme-high-contrast .text-slate-100,
+.theme-high-contrast .text-slate-200 {
+  color: #ffffff !important;
+  font-weight: 600;
+}
+.theme-high-contrast .text-slate-300,
+.theme-high-contrast .text-slate-400 {
+  color: #f1f5f9 !important;
+}
+.theme-high-contrast .text-slate-500 {
+  color: #e2e8f0 !important;
+}
+
+/* Focus and Action Accents in High Contrast */
+.theme-high-contrast button:focus-visible,
+.theme-high-contrast a:focus-visible,
+.theme-high-contrast input:focus-visible {
+  outline: 3px solid #facc15 !important;
+  outline-offset: 2px !important;
+}
+
+/* Status Badges in High Contrast */
+.theme-high-contrast .bg-emerald-950,
+.theme-high-contrast .bg-emerald-950\/80,
+.theme-high-contrast .bg-emerald-950\/30 {
+  background-color: #000000 !important;
+  border-color: #4ade80 !important;
+  border-width: 2px !important;
+  color: #4ade80 !important;
+}
+.theme-high-contrast .text-emerald-300,
+.theme-high-contrast .text-emerald-400 {
+  color: #4ade80 !important;
+}
+.theme-high-contrast .bg-amber-950,
+.theme-high-contrast .bg-amber-950\/80,
+.theme-high-contrast .bg-amber-950\/30 {
+  background-color: #000000 !important;
+  border-color: #facc15 !important;
+  border-width: 2px !important;
+  color: #facc15 !important;
+}
+.theme-high-contrast .text-amber-300,
+.theme-high-contrast .text-amber-400 {
+  color: #facc15 !important;
+}
+.theme-high-contrast .bg-rose-950,
+.theme-high-contrast .bg-rose-950\/80,
+.theme-high-contrast .bg-rose-950\/30 {
+  background-color: #000000 !important;
+  border-color: #f87171 !important;
+  border-width: 2px !important;
+  color: #f87171 !important;
+}
+.theme-high-contrast .text-rose-300,
+.theme-high-contrast .text-rose-400 {
+  color: #f87171 !important;
+}
+.theme-high-contrast .bg-sky-950,
+.theme-high-contrast .bg-sky-950\/80,
+.theme-high-contrast .bg-sky-950\/30 {
+  background-color: #000000 !important;
+  border-color: #38bdf8 !important;
+  border-width: 2px !important;
+  color: #38bdf8 !important;
+}
+.theme-high-contrast .text-sky-300,
+.theme-high-contrast .text-sky-400 {
+  color: #38bdf8 !important;
+}

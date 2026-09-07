@@ -1,0 +1,6 @@
+{
+  "name": "Asterisk ICPBX Virtual PBX",
+  "description": "Centralino telefonico VoIP virtuale enterprise basato su Asterisk con web client WebRTC, gestione interni e dialplan, CDR, notifiche push iOS/Android, monitoraggio cluster e installer Rocky Linux.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
