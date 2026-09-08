@@ -92,13 +92,18 @@ dnf install -y mariadb-server mariadb
 systemctl enable --now mariadb
 
 # Inizializzazione Schema Database Asterisk
-mysql -u root <<EOF
-ALTER USER 'root'@'localhost' IDENTIFIED BY '\$DB_ROOT_PASS';
-CREATE DATABASE IF NOT EXISTS \`asterisk_pbx\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+MYSQL_CMD="mysql -u root"
+if ! mysql -u root -e "SELECT 1;" >/dev/null 2>&1; then
+    MYSQL_CMD="mysql -u root -p\$DB_ROOT_PASS"
+fi
+
+\$MYSQL_CMD <<EOF
+CREATE DATABASE IF NOT EXISTS asterisk_pbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'asterisk_user'@'localhost' IDENTIFIED BY '\$DB_PBX_PASS';
-GRANT ALL PRIVILEGES ON \`asterisk_pbx\`.* TO 'asterisk_user'@'localhost';
+GRANT ALL PRIVILEGES ON asterisk_pbx.* TO 'asterisk_user'@'localhost';
 CREATE USER IF NOT EXISTS 'asterisk_user'@'%' IDENTIFIED BY '\$DB_PBX_PASS';
-GRANT ALL PRIVILEGES ON \`asterisk_pbx\`.* TO 'asterisk_user'@'%';
+GRANT ALL PRIVILEGES ON asterisk_pbx.* TO 'asterisk_user'@'%';
+ALTER USER 'root'@'localhost' IDENTIFIED BY '\$DB_ROOT_PASS';
 FLUSH PRIVILEGES;
 EOF
 echo -e "\${GREEN}✓ MariaDB avviato e configurato con successo.\${NC}"

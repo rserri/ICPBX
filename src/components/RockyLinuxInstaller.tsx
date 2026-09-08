@@ -67,7 +67,7 @@ export const RockyLinuxInstaller: React.FC = () => {
             `\n>>> ESECUZIONE: ${stepData.command}`,
             ...stepData.logs.slice(0, 2),
             '[ERRORE CRITICO] Installazione interrotta alla riga 62!',
-            'Comando fallito: mysql -u root -e "CREATE DATABASE `asterisk_pbx`;"',
+            'Comando fallito: mysql -u root -e "CREATE DATABASE asterisk_pbx;"',
             'Codice di uscita: 1045 (Access denied for user root@localhost)',
             'Trap ERR scattato. Log dettagliato salvato in /var/log/pbx-install.log',
             '>>> Autoguarigione: Ripristino credenziali e continuazione...'
