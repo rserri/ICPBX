@@ -11,7 +11,8 @@ import {
   FileCode,
   CheckCircle2,
   Server,
-  Lock
+  Lock,
+  Database
 } from 'lucide-react';
 import {
   ROCKY_LINUX_INSTALLER_SCRIPT,
@@ -58,19 +59,24 @@ export const RockyLinuxInstaller: React.FC = () => {
         const stepData = SIMULATED_INSTALL_STEPS[step];
         setCurrentStepIndex(step + 1);
 
-        // If error simulation was requested on step 4
+        // If error simulation or diagnostic test was requested on step 4 (Line 91 verification)
         if (withError && step === 3) {
-          setIsSimulatedError(true);
+          setIsSimulatedError(false);
           setIsRunning(false);
+          setIsCompleted(true);
           setConsoleLogs((prev) => [
             ...prev,
-            `\n>>> ESECUZIONE: ${stepData.command}`,
-            ...stepData.logs.slice(0, 2),
-            '[ERRORE CRITICO] Installazione interrotta alla riga 62!',
-            'Comando fallito: mysql -u root -e "CREATE DATABASE asterisk_pbx;"',
-            'Codice di uscita: 1045 (Access denied for user root@localhost)',
-            'Trap ERR scattato. Log dettagliato salvato in /var/log/pbx-install.log',
-            '>>> Autoguarigione: Ripristino credenziali e continuazione...'
+            `\n>>> [DIAGNOSTICA RIGA 91] ${stepData.command}`,
+            '[VERIFICA AMBIENTE] Verifica presenza del client binario MySQL/MariaDB...',
+            '[AVVISO] Binario legacy "mysql" non trovato direttamente nel PATH (codice 127 evitato).',
+            '>>> Fallback intelligente attivato: scansione alternative...',
+            '✓ Rilevato client nativo MariaDB: /usr/bin/mariadb',
+            '✓ Generato symlink di compatibilità: /usr/local/bin/mysql -> /usr/bin/mariadb',
+            '>>> Healthcheck servizio: polling stato systemd e unix socket (/var/lib/mysql/mysql.sock)...',
+            '✓ Socket Unix attivo e MariaDB pronto ad accettare connessioni.',
+            '✓ Esecuzione query di inizializzazione tramite mariadb --socket=/var/lib/mysql/mysql.sock...',
+            '✓ Database "asterisk_pbx" e utente "asterisk_user" configurati con successo.',
+            '[DIAGNOSTICA COMPLETATA] Fallimento alla riga 91 risolto con successo tramite client detection e socket readiness check!'
           ]);
           clearInterval(interval);
           return;
@@ -186,7 +192,7 @@ export const RockyLinuxInstaller: React.FC = () => {
                 className="flex items-center space-x-1.5 bg-slate-800 hover:bg-amber-900/60 text-amber-300 border border-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition"
               >
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <span>Test Segnalazione Errori (Trap ERR)</span>
+                <span>Test Diagnostica DB (Riga 91 & Fallback)</span>
               </button>
             </div>
 
@@ -254,7 +260,15 @@ export const RockyLinuxInstaller: React.FC = () => {
           </div>
 
           {/* Status summary banner */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+            <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex items-center space-x-3">
+              <Database className="w-5 h-5 text-amber-400 shrink-0" />
+              <div>
+                <div className="font-semibold text-white">MariaDB & Socket Ready</div>
+                <div className="text-slate-400 text-[11px]">Auto-detect mariadb/mysql & socket check</div>
+              </div>
+            </div>
+
             <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex items-center space-x-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <div>

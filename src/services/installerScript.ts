@@ -89,15 +89,85 @@ dnf install -y \\
 # 4. Installazione MariaDB 10.11 Galera-Ready & Configurazione DB
 echo -e "\\n\${BLUE}[4/8] Installazione MariaDB 10.11 Galera Cluster & Database PBX...\${NC}"
 dnf install -y mariadb-server mariadb
+
+# Avvio ed abilitazione del servizio MariaDB
+echo "Avvio ed abilitazione del servizio MariaDB..."
 systemctl enable --now mariadb
 
-# Inizializzazione Schema Database Asterisk
-MYSQL_CMD="mysql -u root"
-if ! mysql -u root -e "SELECT 1;" >/dev/null 2>&1; then
-    MYSQL_CMD="mysql -u root -p\$DB_ROOT_PASS"
+# Rilevamento binario client (mariadb o mysql) per compatibilità Rocky Linux 8/9
+DB_CLIENT=""
+if command -v mariadb >/dev/null 2>&1; then
+    DB_CLIENT="mariadb"
+elif command -v mysql >/dev/null 2>&1; then
+    DB_CLIENT="mysql"
+elif [ -x "/usr/bin/mariadb" ]; then
+    DB_CLIENT="/usr/bin/mariadb"
+elif [ -x "/usr/bin/mysql" ]; then
+    DB_CLIENT="/usr/bin/mysql"
+else
+    echo -e "\${YELLOW}Client non trovato nel PATH, installazione esplicita del pacchetto mariadb...\${NC}"
+    dnf install -y mariadb || true
+    if command -v mariadb >/dev/null 2>&1; then
+        DB_CLIENT="mariadb"
+    elif command -v mysql >/dev/null 2>&1; then
+        DB_CLIENT="mysql"
+    fi
 fi
 
-\$MYSQL_CMD <<EOF
+if [ -z "\$DB_CLIENT" ]; then
+    echo -e "\${RED}[ERRORE CRITICO] Impossibile trovare né 'mariadb' né 'mysql' client.\${NC}"
+    echo -e "\${YELLOW}Verificare i pacchetti installati: rpm -qa | grep -i mariadb\${NC}"
+    exit 1
+fi
+
+# Crea symlink di compatibilità /usr/local/bin/mysql se assente
+if ! command -v mysql >/dev/null 2>&1 && command -v mariadb >/dev/null 2>&1; then
+    ln -sf "$(command -v mariadb)" /usr/local/bin/mysql || true
+fi
+
+echo -e "\${GREEN}✓ Client database identificato: \${DB_CLIENT}\${NC}"
+
+# Rilevamento socket Unix locale
+SOCKET_ARGS=()
+if [ -S "/var/lib/mysql/mysql.sock" ]; then
+    SOCKET_ARGS=(--socket="/var/lib/mysql/mysql.sock")
+elif [ -S "/run/mariadb/mariadb.sock" ]; then
+    SOCKET_ARGS=(--socket="/run/mariadb/mariadb.sock")
+fi
+
+# Attesa attiva per verificare che il demone MariaDB sia attivo e pronto ad accettare connessioni
+echo "Verifica disponibilità connessione al database (healthcheck socket e servizio)..."
+MAX_WAIT_SEC=30
+DB_READY=false
+
+for ((i=1; i<=MAX_WAIT_SEC; i++)); do
+    if systemctl is-active --quiet mariadb; then
+        if "\$DB_CLIENT" "\${SOCKET_ARGS[@]}" -u root -e "SELECT 1;" >/dev/null 2>&1; then
+            DB_READY=true
+            break
+        elif "\$DB_CLIENT" "\${SOCKET_ARGS[@]}" -u root -p"\$DB_ROOT_PASS" -e "SELECT 1;" >/dev/null 2>&1; then
+            DB_READY=true
+            break
+        fi
+    fi
+    sleep 1
+done
+
+if [ "\$DB_READY" = false ]; then
+    echo -e "\${RED}[ERRORE] MariaDB non è pronto ad accettare connessioni dopo \${MAX_WAIT_SEC} secondi.\${NC}"
+    systemctl status mariadb --no-pager || true
+    exit 1
+fi
+echo -e "\${GREEN}✓ Servizio MariaDB attivo e pronto ad accettare connessioni.\${NC}"
+
+# Determinazione credenziali root di accesso
+MYSQL_AUTH=(-u root)
+if ! "\$DB_CLIENT" "\${SOCKET_ARGS[@]}" -u root -e "SELECT 1;" >/dev/null 2>&1; then
+    MYSQL_AUTH=(-u root -p"\$DB_ROOT_PASS")
+fi
+
+# Inizializzazione Schema Database Asterisk
+"\$DB_CLIENT" "\${SOCKET_ARGS[@]}" "\${MYSQL_AUTH[@]}" <<EOF
 CREATE DATABASE IF NOT EXISTS asterisk_pbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'asterisk_user'@'localhost' IDENTIFIED BY '\$DB_PBX_PASS';
 GRANT ALL PRIVILEGES ON asterisk_pbx.* TO 'asterisk_user'@'localhost';
@@ -106,7 +176,7 @@ GRANT ALL PRIVILEGES ON asterisk_pbx.* TO 'asterisk_user'@'%';
 ALTER USER 'root'@'localhost' IDENTIFIED BY '\$DB_ROOT_PASS';
 FLUSH PRIVILEGES;
 EOF
-echo -e "\${GREEN}✓ MariaDB avviato e configurato con successo.\${NC}"
+echo -e "\${GREEN}✓ MariaDB avviato, schema 'asterisk_pbx' creato e utente configurato con successo.\${NC}"
 
 # 5. Installazione PHP 8.2-FPM & Moduli Web
 echo -e "\\n\${BLUE}[5/8] Installazione PHP 8.2-FPM e Moduli PDO, cURL, Sockets...\${NC}"
@@ -242,14 +312,16 @@ export const SIMULATED_INSTALL_STEPS: InstallStepLog[] = [
   {
     stepIndex: 4,
     stepName: 'Database MariaDB 10.11 & Configurazione Cluster Galera',
-    command: 'systemctl enable --now mariadb && mysql_secure_installation',
+    command: 'dnf install -y mariadb-server mariadb && verify_db_client && wait_socket_ready',
     status: 'success',
     logs: [
-      '[INFO] MariaDB Server 10.11.7 installed and started.',
+      '[INFO] MariaDB Server 10.11 and client packages installed.',
+      '[INFO] Verifying DB client binary: found /usr/bin/mariadb (symlink /usr/local/bin/mysql ensured).',
+      '[INFO] Waiting for MariaDB service & unix socket (/var/lib/mysql/mysql.sock)... Active & Ready.',
       '[INFO] Database `asterisk_pbx` created with utf8mb4 collation.',
       '[INFO] Created user asterisk_user with remote and local grants.',
       '[INFO] Galera multi-master replication provider ready (wsrep_on=ON).',
-      '[SUCCESS] MariaDB database active on port 3306.'
+      '[SUCCESS] MariaDB database active and ready to accept connections.'
     ],
     durationSec: 4.1
   },
