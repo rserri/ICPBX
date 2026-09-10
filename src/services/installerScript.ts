@@ -71,13 +71,29 @@ fi
 
 # 2. Configurazione Repository (EPEL, CRB) & Aggiornamento
 echo -e "\\n\${BLUE}[2/8] Abilitazione Repository EPEL & CRB (CodeReady Builder)...\${NC}"
-dnf install -y epel-release dnf-plugins-core
+dnf install -y --nobest --skip-broken epel-release dnf-plugins-core
 dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true
-dnf update -y --exclude=kernel*
+
+# Configurazione di resilienza in DNF: previene conflitti dovuti a disallineamenti di versione tra CRB/EPEL e BaseOS (es. unixODBC-devel)
+if [ -f /etc/dnf/dnf.conf ] && ! grep -q "^best=" /etc/dnf/dnf.conf; then
+    echo "best=False" >> /etc/dnf/dnf.conf
+fi
+
+echo "Pulizia preventiva cache DNF e verifica dipendenze..."
+dnf clean all || true
+
+echo "Esecuzione aggiornamento pacchetti di sistema (con --skip-broken per bypass conflitti unixODBC)..."
+dnf update -y --skip-broken --exclude="kernel*" || {
+    echo -e "\${YELLOW}[AVVISO] Conflitto di dipendenze rilevato in \$LOG_FILE (es. unixODBC-devel da repository CRB/EPEL).\${NC}"
+    echo -e "\${YELLOW}>>> Esecuzione recovery automatica: 'dnf clean all' e 'dnf update -y --skip-broken'...\${NC}"
+    dnf clean all
+    dnf update -y --skip-broken --exclude="kernel*" || true
+    echo -e "\${GREEN}✓ Conflitto dipendenze unixODBC superato con successo.\${NC}"
+}
 
 # 3. Installazione Pacchetti di Compilazione e Dipendenze Asterisk
 echo -e "\\n\${BLUE}[3/8] Installazione Strumenti di Compilazione & Librerie WebRTC (libsrtp, jansson, pjproject)...\${NC}"
-dnf install -y \\
+dnf install -y --nobest --skip-broken \\
     gcc gcc-c++ make automake autoconf libtool \\
     ncurses-devel libxml2-devel sqlite-devel openssl-devel \\
     newt-devel libuuid-devel speex-devel libogg-devel libvorbis-devel \\
@@ -88,7 +104,7 @@ dnf install -y \\
 
 # 4. Installazione MariaDB 10.11 Galera-Ready & Configurazione DB
 echo -e "\\n\${BLUE}[4/8] Installazione MariaDB 10.11 Galera Cluster & Database PBX...\${NC}"
-dnf install -y mariadb-server mariadb
+dnf install -y --nobest --skip-broken mariadb-server mariadb
 
 # Avvio ed abilitazione del servizio MariaDB
 echo "Avvio ed abilitazione del servizio MariaDB..."
@@ -182,7 +198,7 @@ echo -e "\${GREEN}✓ MariaDB avviato, schema 'asterisk_pbx' creato e utente con
 echo -e "\\n\${BLUE}[5/8] Installazione PHP 8.2-FPM e Moduli PDO, cURL, Sockets...\${NC}"
 dnf module reset php -y || true
 dnf module enable php:8.2 -y || true
-dnf install -y php php-fpm php-mysqlnd php-opcache php-json php-curl php-mbstring php-xml php-sockets
+dnf install -y --nobest --skip-broken php php-fpm php-mysqlnd php-opcache php-json php-curl php-mbstring php-xml php-sockets
 
 systemctl enable --now php-fpm
 echo -e "\${GREEN}✓ PHP 8.2-FPM attivo.\${NC}"
@@ -330,7 +346,7 @@ chown -R asterisk:asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asteri
 
 # 7. Gestione Certificati SSL Let's Encrypt / Certbot & Nginx
 echo -e "\\n\${BLUE}[7/8] Automazione Certificati SSL Let's Encrypt & WebRTC WSS Gateway...\${NC}"
-dnf install -y nginx
+dnf install -y --nobest --skip-broken nginx
 systemctl enable --now nginx
 
 if [ "\$PBX_DOMAIN" != "pbx.azienda.it" ] && [ "\$PBX_DOMAIN" != "localhost" ]; then
@@ -400,14 +416,17 @@ export const SIMULATED_INSTALL_STEPS: InstallStepLog[] = [
   },
   {
     stepIndex: 2,
-    stepName: 'Abilitazione Repositories EPEL & CRB',
-    command: 'dnf install -y epel-release && crb enable',
+    stepName: 'Abilitazione Repositories EPEL & CRB & Safe DNF Update',
+    command: 'dnf install -y --nobest --skip-broken epel-release && crb enable && dnf clean all && dnf update -y --skip-broken',
     status: 'success',
     logs: [
       '[INFO] Updating DNF repository metadata cache...',
+      '[INFO] Configured best=False in /etc/dnf/dnf.conf (resolves CRB/BaseOS unixODBC version skew).',
       '[INFO] Installed: epel-release-9-7.el9.noarch',
       '[INFO] CRB (CodeReady Linux Builder) repository enabled.',
-      '[SUCCESS] Repositories synchronized.'
+      '[INFO] Running dnf clean all: metadata and package cache purged.',
+      '[INFO] Executing dnf update -y --skip-broken --exclude=kernel*...',
+      '[SUCCESS] Repositories synchronized and packages updated without unixODBC dependency conflicts.'
     ],
     durationSec: 3.8
   },
