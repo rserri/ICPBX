@@ -47,6 +47,33 @@ error_handler() {
 }
 trap 'error_handler $? $LINENO' ERR
 
+# --- Funzione di Logging Strutturato per Compilazione e Servizi ---
+# Cattura direttamente stdout e stderr in /var/log/pbx-install.log con timestamp e tagging del processo
+log_exec() {
+    local task_tag="$1"
+    shift
+    local ts_start
+    ts_start=$(date "+%Y-%m-%d %H:%M:%S")
+    echo -e "\n${BLUE}[$ts_start] [PROCESSO-START: $task_tag] >>> $*${NC}" | tee -a "$LOG_FILE"
+
+    local exit_code=0
+    # Esegue il comando canalizzando in tempo reale sia stdout che stderr verso tee per garantire che /var/log/pbx-install.log
+    # registri tutti gli output di compilazione, warning, link di librerie ed eventuali errori critici.
+    "$@" 2>&1 | while IFS= read -r line; do
+        printf "[%s] [%s] %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$task_tag" "$line"
+    done | tee -a "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
+
+    local ts_end
+    ts_end=$(date "+%Y-%m-%d %H:%M:%S")
+    if [ "$exit_code" -eq 0 ]; then
+        echo -e "${GREEN}[$ts_end] [PROCESSO-OK: $task_tag] Operazione completata con successo (exit code: 0).${NC}" | tee -a "$LOG_FILE"
+    else
+        echo -e "${RED}[$ts_end] [PROCESSO-ERRORE: $task_tag] Comando fallito con codice di uscita: $exit_code!${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}[$ts_end] [DEBUG-VISIBILITY] Consultare le righe precedenti in $LOG_FILE per il dump dettagliato di stdout/stderr.${NC}" | tee -a "$LOG_FILE"
+        return "$exit_code"
+    fi
+}
+
 # 1. Verifica Prerequisiti di Sistema (Root & Rocky Linux)
 echo -e "\n${BLUE}[1/8] Verifica Prerequisiti e OS Rocky Linux...${NC}"
 if [[ $EUID -ne 0 ]]; then
@@ -310,8 +337,8 @@ fi
 
 contrib/scripts/install_prereq install || true
 
-./configure --with-jansson-bundled --with-pjproject-bundled --with-crypto --with-ssl --with-srtp
-make menuselect.makeopts
+log_exec "ASTERISK-CONFIGURE" ./configure --with-jansson-bundled --with-pjproject-bundled --with-crypto --with-ssl --with-srtp
+log_exec "ASTERISK-MENUSELECT-OPTS" make menuselect.makeopts
 
 # Abilitazione sicura di format_mp3: solo se i file sorgente in addons/mp3/mpg123.h sono presenti
 MENUSEL_MODULES=(--enable res_srtp --enable res_pjsip --enable res_pjsip_transport_websocket --enable codec_opus)
@@ -326,14 +353,65 @@ fi
 
 menuselect/menuselect "${MENUSEL_MODULES[@]}" menuselect.makeopts
 
-make -j$(nproc)
-make install
-make samples
-make config
+# Esecuzione compilazione ed installazione con cattura completa di stdout e stderr in $LOG_FILE
+log_exec "ASTERISK-BUILD-MAKE" make -j"$(nproc)"
+log_exec "ASTERISK-INSTALL" make install
+log_exec "ASTERISK-SAMPLES" make samples
 
-# Creazione utente dedicato asterisk
-useradd -m -d /var/lib/asterisk -s /sbin/nologin asterisk || true
+# 6.5 Configurazione Servizio Asterisk (Supporto nativo systemd per Rocky Linux 9)
+echo "Configurazione del servizio di avvio systemd nativo per Asterisk (sostituzione completa di chkconfig)..."
+
+# Creazione preventiva dell'utente dedicato asterisk
+if ! id asterisk >/dev/null 2>&1; then
+    useradd -m -d /var/lib/asterisk -s /sbin/nologin asterisk || true
+fi
+
+# Creazione o aggiornamento unità di servizio systemd nativa per Asterisk (standard Rocky Linux 9)
+# Su Rocky Linux 9, chkconfig è deprecato e rimosso: la gestione avviene nativamente tramite systemd
+echo "Creazione unità di sistema nativa /etc/systemd/system/asterisk.service..."
+cat <<'EOF' > /etc/systemd/system/asterisk.service
+[Unit]
+Description=Asterisk PBX and Telephony Daemon
+Documentation=man:asterisk(8)
+After=network.target network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+Environment=LIVE_DANGEROUSLY=yes
+ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
+ExecStop=/usr/sbin/asterisk -rx 'core stop now'
+ExecReload=/usr/sbin/asterisk -rx 'core reload'
+Restart=always
+RestartSec=4
+LimitNOFILE=65536
+LimitNPROC=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Configurazione cartelle e permessi di runtime per Asterisk
+mkdir -p /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk /etc/asterisk /etc/tmpfiles.d
+echo "d /run/asterisk 0750 asterisk asterisk" > /etc/tmpfiles.d/asterisk.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/asterisk.conf 2>&1 | tee -a "$LOG_FILE" || true
 chown -R asterisk:asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk /etc/asterisk
+
+# Impostazione utente e gruppo nei file di configurazione principali
+if [ -f "/etc/asterisk/asterisk.conf" ]; then
+    sed -i -e 's/^;runuser = asterisk/runuser = asterisk/' \
+           -e 's/^;rungroup = asterisk/rungroup = asterisk/' \
+           /etc/asterisk/asterisk.conf || true
+fi
+
+# Ricarica configurazione systemd, abilitazione all'avvio e avvio del servizio con log_exec
+# Sostituzione nativa di chkconfig con i comandi systemctl conformi a Rocky Linux 9
+log_exec "SYSTEMD-DAEMON-RELOAD" systemctl daemon-reload
+log_exec "SYSTEMD-ENABLE-ASTERISK" systemctl enable asterisk
+log_exec "SYSTEMD-START-ASTERISK" systemctl start asterisk
+echo -e "${GREEN}✓ Unità systemd per Asterisk abilitata ed avviata con successo tramite comandi nativi systemctl.${NC}"
 
 # 7. Gestione Certificati SSL Let's Encrypt / Certbot & Nginx
 echo -e "\n${BLUE}[7/8] Automazione Certificati SSL Let's Encrypt & WebRTC WSS Gateway...${NC}"
@@ -373,8 +451,9 @@ firewall-cmd --permanent --add-port=10000-20000/udp # RTP Audio Media Stream
 firewall-cmd --permanent --add-port=5038/tcp    # Asterisk AMI (Manager)
 firewall-cmd --reload
 
-# Avvio e Verifica Servizio Asterisk
-systemctl enable --now asterisk
+# Avvio e Verifica Servizio Asterisk (gestione nativa systemd)
+systemctl enable asterisk
+systemctl start asterisk
 sleep 3
 
 AST_VER_OUT=$(asterisk -rx "core show version" 2>&1 || true)
