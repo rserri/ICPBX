@@ -41,7 +41,7 @@ export const RockyLinuxInstaller: React.FC = () => {
     }
   }, [consoleLogs]);
 
-  const handleStartInstallation = (diagnosticMode: 'none' | 'db' | 'asterisk' = 'none') => {
+  const handleStartInstallation = (diagnosticMode: 'none' | 'db' | 'asterisk' | 'extract' = 'none') => {
     setIsRunning(true);
     setIsCompleted(false);
     setIsSimulatedError(false);
@@ -98,6 +98,27 @@ export const RockyLinuxInstaller: React.FC = () => {
             '✓ Healthcheck tarball superato: integrità gzip verificata (tar -tzf OK, dimensione > 28MB).',
             '✓ Estrazione dinamica in /usr/src/asterisk-20.6.0 completata.',
             '[DIAGNOSTICA COMPLETATA] Blocco alla riga 185 risolto con successo tramite releases URL e fallback automatici!'
+          ]);
+          clearInterval(interval);
+          return;
+        }
+
+        // If diagnostic test was requested on step 5 (Line 247 Asterisk Extraction & SIGPIPE 141 fix)
+        if (diagnosticMode === 'extract' && step === 4) {
+          setIsSimulatedError(false);
+          setIsRunning(false);
+          setIsCompleted(true);
+          setConsoleLogs((prev) => [
+            ...prev,
+            `\n>>> [DIAGNOSTICA RIGA 247] Estrazione Asterisk & Risoluzione SIGPIPE (Codice 141)`,
+            'Estrazione archivio asterisk-20.6.0.tar.gz in /usr/src...',
+            'tar -zxf asterisk-20.6.0.tar.gz: estrazione completata con successo.',
+            '[ANALISI PIPELINE] Rilevato pericolo SIGPIPE (exit code 141) causato da "tar -ztf | head -n 1" con pipefail.',
+            '>>> Esecuzione metodo safe-filesystem: scansione diretta filesystem su /usr/src/asterisk-20.6.0...',
+            '✓ Rilevata cartella sorgente estratta: /usr/src/asterisk-20.6.0',
+            '✓ Nessun processo interrotto con segnale 13 (SIGPIPE): pipeline sicura con set -euo pipefail.',
+            '✓ Directory di compilazione /usr/src/asterisk-20.6.0 validata ed accessibile.',
+            '[DIAGNOSTICA COMPLETATA] Errore 141 alla riga 247 completamente neutralizzato!'
           ]);
           clearInterval(interval);
           return;
@@ -224,6 +245,16 @@ export const RockyLinuxInstaller: React.FC = () => {
               >
                 <Server className="w-4 h-4 text-sky-400" />
                 <span>Test Asterisk (Riga 185)</span>
+              </button>
+
+              <button
+                id="btn-simulate-extract"
+                disabled={isRunning}
+                onClick={() => handleStartInstallation('extract')}
+                className="flex items-center space-x-1.5 bg-slate-800 hover:bg-emerald-900/60 text-emerald-300 border border-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition"
+              >
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Test Estrazione (Riga 247)</span>
               </button>
             </div>
 

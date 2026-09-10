@@ -252,10 +252,27 @@ fi
 echo -e "Estrazione archivio \${ASTERISK_TAR}..."
 tar -zxf "\$ASTERISK_TAR"
 
-# Rilevamento dinamico della cartella estratta (asterisk-20.6.0 o asterisk-20.x.x)
-ASTERISK_SRC_DIR=\$(tar -ztf "\$ASTERISK_TAR" 2>/dev/null | head -n 1 | cut -f1 -d"/")
+# Rilevamento sicuro della cartella estratta in /usr/src (evita pipe/head con pipefail e segnale SIGPIPE 141)
+ASTERISK_SRC_DIR=""
+if [ -d "/usr/src/asterisk-\${ASTERISK_VER}" ]; then
+    ASTERISK_SRC_DIR="asterisk-\${ASTERISK_VER}"
+else
+    for dir in /usr/src/asterisk-*; do
+        if [ -d "\$dir" ]; then
+            ASTERISK_SRC_DIR="\$(basename "\$dir")"
+            break
+        fi
+    done
+fi
+
+# Fallback di sicurezza
 if [ -z "\$ASTERISK_SRC_DIR" ] || [ ! -d "/usr/src/\$ASTERISK_SRC_DIR" ]; then
     ASTERISK_SRC_DIR="asterisk-\${ASTERISK_VER}"
+fi
+
+if [ ! -d "/usr/src/\$ASTERISK_SRC_DIR" ]; then
+    echo -e "\${RED}[ERRORE CRITICO] Directory sorgenti /usr/src/\$ASTERISK_SRC_DIR non trovata dopo l'estrazione!\${NC}"
+    exit 1
 fi
 
 cd "/usr/src/\$ASTERISK_SRC_DIR"
@@ -320,10 +337,11 @@ firewall-cmd --reload
 systemctl enable --now asterisk
 sleep 3
 
-if asterisk -rx "core show version" | grep -qi "Asterisk"; then
+AST_VER_OUT=\$(asterisk -rx "core show version" 2>&1 || true)
+if echo "\$AST_VER_OUT" | grep -i "Asterisk" >/dev/null 2>&1; then
     echo -e "\\n\${GREEN}====================================================================\${NC}"
     echo -e "\${GREEN}  INSTALLAZIONE COMPLETATA CON SUCCESSO! \${NC}"
-    echo -e "\${GREEN}  Asterisk: $(asterisk -rx "core show version")\${NC}"
+    echo -e "\${GREEN}  Asterisk: \$AST_VER_OUT\${NC}"
     echo -e "\${GREEN}  Interfaccia Web: https://\$PBX_DOMAIN/\${NC}"
     echo -e "\${GREEN}  Log Completo: \$LOG_FILE\${NC}"
     echo -e "\${GREEN}====================================================================\${NC}"
