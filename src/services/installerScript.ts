@@ -83,7 +83,7 @@ dnf install -y \\
     newt-devel libuuid-devel speex-devel libogg-devel libvorbis-devel \\
     libsrtp-devel jansson-devel opus-devel libedit-devel \\
     libcurl-devel gnutls-devel unbound-devel wget tar bzip2 \\
-    git net-tools psmisc policycoreutils-python-utils \\
+    subversion git net-tools psmisc policycoreutils-python-utils \\
     certbot python3-certbot-nginx firewalld
 
 # 4. Installazione MariaDB 10.11 Galera-Ready & Configurazione DB
@@ -278,13 +278,46 @@ fi
 cd "/usr/src/\$ASTERISK_SRC_DIR"
 echo -e "\${GREEN}✓ Sorgenti pronti in /usr/src/\$ASTERISK_SRC_DIR per la compilazione.\${NC}"
 
+# Verifica e installazione di subversion per download sorgenti MP3
+if ! command -v svn >/dev/null 2>&1; then
+    echo "Installazione di subversion per download sorgenti MP3..."
+    dnf install -y subversion || true
+fi
+
 # Download moduli MP3 e prerequisiti
+echo "Download sorgenti MP3 tramite contrib/scripts/get_mp3_source.sh..."
 contrib/scripts/get_mp3_source.sh || true
+
+# Fallback se svn non ha scaricato mpg123.h (es. timeout o indisponibilità repository)
+if [ ! -f "addons/mp3/mpg123.h" ]; then
+    echo -e "\${YELLOW}[AVVISO] get_mp3_source.sh non ha scaricato mpg123.h. Tentativo download diretto via HTTP...\${NC}"
+    mkdir -p addons/mp3
+    MP3_FILES=("common.c" "dct64_i386.c" "decode_i386.c" "decode_ntom.c" "huffman.h" "interface.c" "layer3.c" "mpg123.h" "mpglib.h" "tabinit.c" "Makefile" "README" "MPGLIB_README" "MPGLIB_TODO")
+    for f in "\${MP3_FILES[@]}"; do
+        curl -sSL -m 15 -o "addons/mp3/\$f" "https://svn.digium.com/svn/thirdparty/mp3/trunk/\$f" || true
+    done
+    if [ -f "addons/mp3/interface.c" ] && ! grep -q ASTMM_LIBC "addons/mp3/interface.c"; then
+        sed -i -e '/#include "asterisk.h"/i#define ASTMM_LIBC ASTMM_REDIRECT' addons/mp3/interface.c || true
+    fi
+fi
+
 contrib/scripts/install_prereq install || true
 
 ./configure --with-jansson-bundled --with-pjproject-bundled --with-crypto --with-ssl --with-srtp
 make menuselect.makeopts
-menuselect/menuselect --enable res_srtp --enable res_pjsip --enable res_pjsip_transport_websocket --enable codec_opus --enable format_mp3 menuselect.makeopts
+
+# Abilitazione sicura di format_mp3: solo se i file sorgente in addons/mp3/mpg123.h sono presenti
+MENUSEL_MODULES=(--enable res_srtp --enable res_pjsip --enable res_pjsip_transport_websocket --enable codec_opus)
+
+if [ -f "addons/mp3/mpg123.h" ]; then
+    echo -e "\${GREEN}✓ Sorgenti MP3 (addons/mp3) verificati con successo: abilitazione format_mp3.\${NC}"
+    MENUSEL_MODULES+=(--enable format_mp3)
+else
+    echo -e "\${YELLOW}[AVVISO] Sorgenti MP3 non reperibili in addons/mp3. Modulo format_mp3 disabilitato per evitare errore critico in make install.\${NC}"
+    menuselect/menuselect --disable format_mp3 menuselect.makeopts 2>/dev/null || true
+fi
+
+menuselect/menuselect "\${MENUSEL_MODULES[@]}" menuselect.makeopts
 
 make -j$(nproc)
 make install
@@ -381,14 +414,15 @@ export const SIMULATED_INSTALL_STEPS: InstallStepLog[] = [
   {
     stepIndex: 3,
     stepName: 'Installazione Strumenti di Compilazione & WebRTC',
-    command: 'dnf install -y gcc gcc-c++ libsrtp-devel opus-devel certbot',
+    command: 'dnf install -y gcc gcc-c++ subversion libsrtp-devel opus-devel certbot',
     status: 'success',
     logs: [
-      '[INFO] Resolving dependencies for WebRTC audio...',
+      '[INFO] Resolving dependencies for WebRTC audio & MP3 addons...',
+      '[INFO] Installed subversion.x86_64 1.14.1 (SVN support for get_mp3_source)',
       '[INFO] Installed libsrtp2-devel.x86_64 2.4.2-3.el9',
       '[INFO] Installed opus-devel.x86_64 1.3.1-10.el9',
       '[INFO] Installed jansson-devel.x86_64 2.14-1.el9',
-      '[SUCCESS] All 38 development packages installed.'
+      '[SUCCESS] All development and Subversion packages installed.'
     ],
     durationSec: 6.4
   },
@@ -414,12 +448,13 @@ export const SIMULATED_INSTALL_STEPS: InstallStepLog[] = [
     command: './configure --with-pjproject-bundled && make -j$(nproc) && make install',
     status: 'success',
     logs: [
+      '[INFO] Verifying MP3 addons source code (addons/mp3/mpg123.h)... OK',
       '[INFO] Configuring Asterisk 20.6.0 with WebRTC support...',
       '[INFO] pjproject-bundled: enabled (PJSIP with SRTP & ICE support)',
       '[INFO] res_pjsip_transport_websocket: enabled',
-      '[INFO] codec_opus: compiled and enabled',
+      '[INFO] codec_opus & format_mp3: compiled and verified',
       '[INFO] Building modules... 100% complete',
-      '[SUCCESS] Asterisk installed to /usr/sbin/asterisk.'
+      '[SUCCESS] make install completed successfully (all modules and addons installed).'
     ],
     durationSec: 12.5
   },

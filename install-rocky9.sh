@@ -74,7 +74,7 @@ dnf install -y \
     newt-devel libuuid-devel speex-devel libogg-devel libvorbis-devel \
     libsrtp-devel jansson-devel opus-devel libedit-devel \
     libcurl-devel gnutls-devel unbound-devel wget tar bzip2 \
-    git net-tools psmisc policycoreutils-python-utils \
+    subversion git net-tools psmisc policycoreutils-python-utils \
     certbot python3-certbot-nginx firewalld
 
 # 4. Installazione MariaDB 10.11 Galera-Ready & Configurazione DB
@@ -269,13 +269,46 @@ fi
 cd "/usr/src/$ASTERISK_SRC_DIR"
 echo -e "${GREEN}✓ Sorgenti pronti in /usr/src/$ASTERISK_SRC_DIR per la compilazione.${NC}"
 
+# Verifica e installazione di subversion per download sorgenti MP3
+if ! command -v svn >/dev/null 2>&1; then
+    echo "Installazione di subversion per download sorgenti MP3..."
+    dnf install -y subversion || true
+fi
+
 # Download moduli MP3 e prerequisiti
+echo "Download sorgenti MP3 tramite contrib/scripts/get_mp3_source.sh..."
 contrib/scripts/get_mp3_source.sh || true
+
+# Fallback se svn non ha scaricato mpg123.h (es. timeout o indisponibilità repository)
+if [ ! -f "addons/mp3/mpg123.h" ]; then
+    echo -e "${YELLOW}[AVVISO] get_mp3_source.sh non ha scaricato mpg123.h. Tentativo download diretto via HTTP...${NC}"
+    mkdir -p addons/mp3
+    MP3_FILES=("common.c" "dct64_i386.c" "decode_i386.c" "decode_ntom.c" "huffman.h" "interface.c" "layer3.c" "mpg123.h" "mpglib.h" "tabinit.c" "Makefile" "README" "MPGLIB_README" "MPGLIB_TODO")
+    for f in "${MP3_FILES[@]}"; do
+        curl -sSL -m 15 -o "addons/mp3/$f" "https://svn.digium.com/svn/thirdparty/mp3/trunk/$f" || true
+    done
+    if [ -f "addons/mp3/interface.c" ] && ! grep -q ASTMM_LIBC "addons/mp3/interface.c"; then
+        sed -i -e '/#include "asterisk.h"/i#define ASTMM_LIBC ASTMM_REDIRECT' addons/mp3/interface.c || true
+    fi
+fi
+
 contrib/scripts/install_prereq install || true
 
 ./configure --with-jansson-bundled --with-pjproject-bundled --with-crypto --with-ssl --with-srtp
 make menuselect.makeopts
-menuselect/menuselect --enable res_srtp --enable res_pjsip --enable res_pjsip_transport_websocket --enable codec_opus --enable format_mp3 menuselect.makeopts
+
+# Abilitazione sicura di format_mp3: solo se i file sorgente in addons/mp3/mpg123.h sono presenti
+MENUSEL_MODULES=(--enable res_srtp --enable res_pjsip --enable res_pjsip_transport_websocket --enable codec_opus)
+
+if [ -f "addons/mp3/mpg123.h" ]; then
+    echo -e "${GREEN}✓ Sorgenti MP3 (addons/mp3) verificati con successo: abilitazione format_mp3.${NC}"
+    MENUSEL_MODULES+=(--enable format_mp3)
+else
+    echo -e "${YELLOW}[AVVISO] Sorgenti MP3 non reperibili in addons/mp3. Modulo format_mp3 disabilitato per evitare errore critico in make install.${NC}"
+    menuselect/menuselect --disable format_mp3 menuselect.makeopts 2>/dev/null || true
+fi
+
+menuselect/menuselect "${MENUSEL_MODULES[@]}" menuselect.makeopts
 
 make -j$(nproc)
 make install

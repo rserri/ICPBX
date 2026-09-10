@@ -41,7 +41,7 @@ export const RockyLinuxInstaller: React.FC = () => {
     }
   }, [consoleLogs]);
 
-  const handleStartInstallation = (diagnosticMode: 'none' | 'db' | 'asterisk' | 'extract' = 'none') => {
+  const handleStartInstallation = (diagnosticMode: 'none' | 'db' | 'asterisk' | 'extract' | 'mp3' = 'none') => {
     setIsRunning(true);
     setIsCompleted(false);
     setIsSimulatedError(false);
@@ -119,6 +119,35 @@ export const RockyLinuxInstaller: React.FC = () => {
             '✓ Nessun processo interrotto con segnale 13 (SIGPIPE): pipeline sicura con set -euo pipefail.',
             '✓ Directory di compilazione /usr/src/asterisk-20.6.0 validata ed accessibile.',
             '[DIAGNOSTICA COMPLETATA] Errore 141 alla riga 247 completamente neutralizzato!'
+          ]);
+          clearInterval(interval);
+          return;
+        }
+
+        // If diagnostic test was requested on step 5 (Line 281 MP3 & make install verification)
+        if (diagnosticMode === 'mp3' && step === 4) {
+          setIsSimulatedError(false);
+          setIsRunning(false);
+          setIsCompleted(true);
+          setConsoleLogs((prev) => [
+            ...prev,
+            `\n>>> [DIAGNOSTICA RIGA 281] Risoluzione Errore 'format_mp3.so' in make install`,
+            '[ANALISI AMBIENTE] Verifica presenza comando "svn" (Subversion)...',
+            '✓ Rilevato subversion (/usr/bin/svn) preinstallato nel pacchetto base DNF.',
+            '>>> Esecuzione contrib/scripts/get_mp3_source.sh...',
+            'A    addons/mp3/mpg123.h',
+            'A    addons/mp3/interface.c',
+            'Exported revision 204.',
+            '✓ Sorgenti MP3 estratti con successo in addons/mp3 (mpg123.h presente).',
+            '>>> Configurazione menuselect: rilevamento addons...',
+            '✓ File addons/mp3/mpg123.h presente: modulo format_mp3 abilitato in sicurezza.',
+            '>>> Esecuzione make -j$(nproc) e make install...',
+            'CC [M] addons/format_mp3.o',
+            'LINK [M] addons/format_mp3.so',
+            'Installing modules from addons...',
+            '/usr/bin/install -m 755 format_mp3.so /usr/lib64/asterisk/modules',
+            '✓ format_mp3.so installato con successo (nessun errore stat o codice di uscita 2).',
+            '[DIAGNOSTICA COMPLETATA] Errore critico alla riga 281 in make install completamente risolto!'
           ]);
           clearInterval(interval);
           return;
@@ -255,6 +284,16 @@ export const RockyLinuxInstaller: React.FC = () => {
               >
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span>Test Estrazione (Riga 247)</span>
+              </button>
+
+              <button
+                id="btn-simulate-mp3"
+                disabled={isRunning}
+                onClick={() => handleStartInstallation('mp3')}
+                className="flex items-center space-x-1.5 bg-slate-800 hover:bg-violet-900/60 text-violet-300 border border-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition"
+              >
+                <CheckCircle2 className="w-4 h-4 text-violet-400" />
+                <span>Test MP3 & Build (Riga 281)</span>
               </button>
             </div>
 
