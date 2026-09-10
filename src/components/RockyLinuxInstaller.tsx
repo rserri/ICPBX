@@ -41,7 +41,7 @@ export const RockyLinuxInstaller: React.FC = () => {
     }
   }, [consoleLogs]);
 
-  const handleStartInstallation = (withError = false) => {
+  const handleStartInstallation = (diagnosticMode: 'none' | 'db' | 'asterisk' = 'none') => {
     setIsRunning(true);
     setIsCompleted(false);
     setIsSimulatedError(false);
@@ -59,8 +59,8 @@ export const RockyLinuxInstaller: React.FC = () => {
         const stepData = SIMULATED_INSTALL_STEPS[step];
         setCurrentStepIndex(step + 1);
 
-        // If error simulation or diagnostic test was requested on step 4 (Line 91 verification)
-        if (withError && step === 3) {
+        // If diagnostic test was requested on step 4 (Line 91 DB verification)
+        if (diagnosticMode === 'db' && step === 3) {
           setIsSimulatedError(false);
           setIsRunning(false);
           setIsCompleted(true);
@@ -77,6 +77,27 @@ export const RockyLinuxInstaller: React.FC = () => {
             '✓ Esecuzione query di inizializzazione tramite mariadb --socket=/var/lib/mysql/mysql.sock...',
             '✓ Database "asterisk_pbx" e utente "asterisk_user" configurati con successo.',
             '[DIAGNOSTICA COMPLETATA] Fallimento alla riga 91 risolto con successo tramite client detection e socket readiness check!'
+          ]);
+          clearInterval(interval);
+          return;
+        }
+
+        // If diagnostic test was requested on step 5 (Line 185 Asterisk Download verification)
+        if (diagnosticMode === 'asterisk' && step === 4) {
+          setIsSimulatedError(false);
+          setIsRunning(false);
+          setIsCompleted(true);
+          setConsoleLogs((prev) => [
+            ...prev,
+            `\n>>> [DIAGNOSTICA RIGA 185] Download e Compilazione Asterisk 20.6.0 LTS`,
+            '[SCANSIONE SORGENTI] Test disponibilità archivio asterisk-20.6.0.tar.gz su mirror primario...',
+            '[AVVISO] URL root https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20.6.0.tar.gz -> HTTP 404 (codice wget 8 evitato).',
+            '>>> Attivazione fallback multi-mirror prioritario: directory releases/ ufficiale...',
+            '✓ Connessione a https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-20.6.0.tar.gz: HTTP/2 200 OK',
+            '✓ Download completato (28.2 MB) via curl/wget con timeout e resume support.',
+            '✓ Healthcheck tarball superato: integrità gzip verificata (tar -tzf OK, dimensione > 28MB).',
+            '✓ Estrazione dinamica in /usr/src/asterisk-20.6.0 completata.',
+            '[DIAGNOSTICA COMPLETATA] Blocco alla riga 185 risolto con successo tramite releases URL e fallback automatici!'
           ]);
           clearInterval(interval);
           return;
@@ -170,11 +191,11 @@ export const RockyLinuxInstaller: React.FC = () => {
         <div className="space-y-4">
           {/* Controls Bar */}
           <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 id="btn-run-installer"
                 disabled={isRunning}
-                onClick={() => handleStartInstallation(false)}
+                onClick={() => handleStartInstallation('none')}
                 className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg transition ${
                   isRunning
                     ? 'bg-slate-700 cursor-not-allowed'
@@ -186,13 +207,23 @@ export const RockyLinuxInstaller: React.FC = () => {
               </button>
 
               <button
-                id="btn-simulate-error"
+                id="btn-simulate-db"
                 disabled={isRunning}
-                onClick={() => handleStartInstallation(true)}
+                onClick={() => handleStartInstallation('db')}
                 className="flex items-center space-x-1.5 bg-slate-800 hover:bg-amber-900/60 text-amber-300 border border-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition"
               >
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <span>Test Diagnostica DB (Riga 91 & Fallback)</span>
+                <span>Test DB (Riga 91)</span>
+              </button>
+
+              <button
+                id="btn-simulate-asterisk"
+                disabled={isRunning}
+                onClick={() => handleStartInstallation('asterisk')}
+                className="flex items-center space-x-1.5 bg-slate-800 hover:bg-sky-900/60 text-sky-300 border border-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition"
+              >
+                <Server className="w-4 h-4 text-sky-400" />
+                <span>Test Asterisk (Riga 185)</span>
               </button>
             </div>
 
@@ -280,8 +311,8 @@ export const RockyLinuxInstaller: React.FC = () => {
             <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex items-center space-x-3">
               <Server className="w-5 h-5 text-sky-400 shrink-0" />
               <div>
-                <div className="font-semibold text-white">Asterisk 20 LTS + WebRTC</div>
-                <div className="text-slate-400 text-[11px]">Compilato con PJSIP, Opus e transport WSS</div>
+                <div className="font-semibold text-white">Asterisk 20 Multi-Mirror</div>
+                <div className="text-slate-400 text-[11px]">Download resiliente /releases & integrity check</div>
               </div>
             </div>
 

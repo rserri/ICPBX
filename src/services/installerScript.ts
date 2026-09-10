@@ -190,11 +190,76 @@ echo -e "\${GREEN}✓ PHP 8.2-FPM attivo.\${NC}"
 # 6. Compilazione e Installazione Asterisk 20 LTS con WebRTC
 echo -e "\\n\${BLUE}[6/8] Download e Compilazione Asterisk \${ASTERISK_VER} LTS con PJSIP & WebRTC...\${NC}"
 cd /usr/src
-if [ ! -f "asterisk-\${ASTERISK_VER}.tar.gz" ]; then
-    wget -q "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-\${ASTERISK_VER}.tar.gz"
+
+ASTERISK_TAR="asterisk-\${ASTERISK_VER}.tar.gz"
+
+# Funzione per verificare se l'archivio è valido e integro (non corrotto, non vuoto e non pagina 404 HTML)
+is_valid_tarball() {
+    local file="\$1"
+    if [ -f "\$file" ] && [ \$(stat -c%s "\$file" 2>/dev/null || stat -f%z "\$file" 2>/dev/null || echo 0) -gt 5000000 ]; then
+        if tar -tzf "\$file" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Mirror e sorgenti di download per Asterisk (Digium/Asterisk releases directory, root, branch current e GitHub)
+DOWNLOAD_URLS=(
+    "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-\${ASTERISK_VER}.tar.gz"
+    "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-\${ASTERISK_VER}.tar.gz"
+    "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz"
+    "https://downloads.asterisk.org/pub/telephony/asterisk/old-releases/asterisk-\${ASTERISK_VER}.tar.gz"
+    "https://github.com/asterisk/asterisk/archive/refs/tags/\${ASTERISK_VER}.tar.gz"
+)
+
+DOWNLOAD_SUCCESS=false
+
+if is_valid_tarball "\$ASTERISK_TAR"; then
+    echo -e "\${GREEN}✓ Archivio \${ASTERISK_TAR} già presente e verificato con successo.\${NC}"
+    DOWNLOAD_SUCCESS=true
+else
+    rm -f "\$ASTERISK_TAR"
+    for URL in "\${DOWNLOAD_URLS[@]}"; do
+        echo -e "Tentativo download da: \${CYAN}\${URL}\${NC}..."
+        if command -v curl >/dev/null 2>&1; then
+            if curl -fSL --connect-timeout 15 --max-time 300 -o "\$ASTERISK_TAR" "\$URL"; then
+                if is_valid_tarball "\$ASTERISK_TAR"; then
+                    echo -e "\${GREEN}✓ Download completato e verificato con successo via curl.\${NC}"
+                    DOWNLOAD_SUCCESS=true
+                    break
+                fi
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if wget -t 3 -T 20 -O "\$ASTERISK_TAR" "\$URL"; then
+                if is_valid_tarball "\$ASTERISK_TAR"; then
+                    echo -e "\${GREEN}✓ Download completato e verificato con successo via wget.\${NC}"
+                    DOWNLOAD_SUCCESS=true
+                    break
+                fi
+            fi
+        fi
+        echo -e "\${YELLOW}[AVVISO] Download da \${URL} non riuscito (es. 404 o timeout). Tentativo sul mirror successivo...\${NC}"
+        rm -f "\$ASTERISK_TAR"
+    done
 fi
-tar -zxf "asterisk-\${ASTERISK_VER}.tar.gz"
-cd "asterisk-\${ASTERISK_VER}"
+
+if [ "\$DOWNLOAD_SUCCESS" != "true" ]; then
+    echo -e "\${RED}[ERRORE CRITICO] Impossibile scaricare l'archivio di Asterisk \${ASTERISK_VER} da nessun mirror disponibile!\${NC}"
+    exit 1
+fi
+
+echo -e "Estrazione archivio \${ASTERISK_TAR}..."
+tar -zxf "\$ASTERISK_TAR"
+
+# Rilevamento dinamico della cartella estratta (asterisk-20.6.0 o asterisk-20.x.x)
+ASTERISK_SRC_DIR=\$(tar -ztf "\$ASTERISK_TAR" 2>/dev/null | head -n 1 | cut -f1 -d"/")
+if [ -z "\$ASTERISK_SRC_DIR" ] || [ ! -d "/usr/src/\$ASTERISK_SRC_DIR" ]; then
+    ASTERISK_SRC_DIR="asterisk-\${ASTERISK_VER}"
+fi
+
+cd "/usr/src/\$ASTERISK_SRC_DIR"
+echo -e "\${GREEN}✓ Sorgenti pronti in /usr/src/\$ASTERISK_SRC_DIR per la compilazione.\${NC}"
 
 # Download moduli MP3 e prerequisiti
 contrib/scripts/get_mp3_source.sh || true

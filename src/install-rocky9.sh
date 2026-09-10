@@ -80,15 +80,85 @@ dnf install -y \
 # 4. Installazione MariaDB 10.11 Galera-Ready & Configurazione DB
 echo -e "\n${BLUE}[4/8] Installazione MariaDB 10.11 Galera Cluster & Database PBX...${NC}"
 dnf install -y mariadb-server mariadb
+
+# Avvio ed abilitazione del servizio MariaDB
+echo "Avvio ed abilitazione del servizio MariaDB..."
 systemctl enable --now mariadb
 
-# Inizializzazione Schema Database Asterisk
-MYSQL_CMD="mysql -u root"
-if ! mysql -u root -e "SELECT 1;" >/dev/null 2>&1; then
-    MYSQL_CMD="mysql -u root -p$DB_ROOT_PASS"
+# Rilevamento binario client (mariadb o mysql) per compatibilità Rocky Linux 8/9
+DB_CLIENT=""
+if command -v mariadb >/dev/null 2>&1; then
+    DB_CLIENT="mariadb"
+elif command -v mysql >/dev/null 2>&1; then
+    DB_CLIENT="mysql"
+elif [ -x "/usr/bin/mariadb" ]; then
+    DB_CLIENT="/usr/bin/mariadb"
+elif [ -x "/usr/bin/mysql" ]; then
+    DB_CLIENT="/usr/bin/mysql"
+else
+    echo -e "${YELLOW}Client non trovato nel PATH, installazione esplicita del pacchetto mariadb...${NC}"
+    dnf install -y mariadb || true
+    if command -v mariadb >/dev/null 2>&1; then
+        DB_CLIENT="mariadb"
+    elif command -v mysql >/dev/null 2>&1; then
+        DB_CLIENT="mysql"
+    fi
 fi
 
-$MYSQL_CMD <<EOF
+if [ -z "$DB_CLIENT" ]; then
+    echo -e "${RED}[ERRORE CRITICO] Impossibile trovare né 'mariadb' né 'mysql' client.${NC}"
+    echo -e "${YELLOW}Verificare i pacchetti installati: rpm -qa | grep -i mariadb${NC}"
+    exit 1
+fi
+
+# Crea symlink di compatibilità /usr/local/bin/mysql se assente
+if ! command -v mysql >/dev/null 2>&1 && command -v mariadb >/dev/null 2>&1; then
+    ln -sf "$(command -v mariadb)" /usr/local/bin/mysql || true
+fi
+
+echo -e "${GREEN}✓ Client database identificato: ${DB_CLIENT}${NC}"
+
+# Rilevamento socket Unix locale
+SOCKET_ARGS=()
+if [ -S "/var/lib/mysql/mysql.sock" ]; then
+    SOCKET_ARGS=(--socket="/var/lib/mysql/mysql.sock")
+elif [ -S "/run/mariadb/mariadb.sock" ]; then
+    SOCKET_ARGS=(--socket="/run/mariadb/mariadb.sock")
+fi
+
+# Attesa attiva per verificare che il demone MariaDB sia attivo e pronto ad accettare connessioni
+echo "Verifica disponibilità connessione al database (healthcheck socket e servizio)..."
+MAX_WAIT_SEC=30
+DB_READY=false
+
+for ((i=1; i<=MAX_WAIT_SEC; i++)); do
+    if systemctl is-active --quiet mariadb; then
+        if "$DB_CLIENT" "${SOCKET_ARGS[@]}" -u root -e "SELECT 1;" >/dev/null 2>&1; then
+            DB_READY=true
+            break
+        elif "$DB_CLIENT" "${SOCKET_ARGS[@]}" -u root -p"$DB_ROOT_PASS" -e "SELECT 1;" >/dev/null 2>&1; then
+            DB_READY=true
+            break
+        fi
+    fi
+    sleep 1
+done
+
+if [ "$DB_READY" = false ]; then
+    echo -e "${RED}[ERRORE] MariaDB non è pronto ad accettare connessioni dopo ${MAX_WAIT_SEC} secondi.${NC}"
+    systemctl status mariadb --no-pager || true
+    exit 1
+fi
+echo -e "${GREEN}✓ Servizio MariaDB attivo e pronto ad accettare connessioni.${NC}"
+
+# Determinazione credenziali root di accesso
+MYSQL_AUTH=(-u root)
+if ! "$DB_CLIENT" "${SOCKET_ARGS[@]}" -u root -e "SELECT 1;" >/dev/null 2>&1; then
+    MYSQL_AUTH=(-u root -p"$DB_ROOT_PASS")
+fi
+
+# Inizializzazione Schema Database Asterisk
+"$DB_CLIENT" "${SOCKET_ARGS[@]}" "${MYSQL_AUTH[@]}" <<EOF
 CREATE DATABASE IF NOT EXISTS asterisk_pbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'asterisk_user'@'localhost' IDENTIFIED BY '$DB_PBX_PASS';
 GRANT ALL PRIVILEGES ON asterisk_pbx.* TO 'asterisk_user'@'localhost';
@@ -97,7 +167,7 @@ GRANT ALL PRIVILEGES ON asterisk_pbx.* TO 'asterisk_user'@'%';
 ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';
 FLUSH PRIVILEGES;
 EOF
-echo -e "${GREEN}✓ MariaDB avviato e configurato con successo.${NC}"
+echo -e "${GREEN}✓ MariaDB avviato, schema 'asterisk_pbx' creato e utente configurato con successo.${NC}"
 
 # 5. Installazione PHP 8.2-FPM & Moduli Web
 echo -e "\n${BLUE}[5/8] Installazione PHP 8.2-FPM e Moduli PDO, cURL, Sockets...${NC}"
@@ -111,11 +181,76 @@ echo -e "${GREEN}✓ PHP 8.2-FPM attivo.${NC}"
 # 6. Compilazione e Installazione Asterisk 20 LTS con WebRTC
 echo -e "\n${BLUE}[6/8] Download e Compilazione Asterisk ${ASTERISK_VER} LTS con PJSIP & WebRTC...${NC}"
 cd /usr/src
-if [ ! -f "asterisk-${ASTERISK_VER}.tar.gz" ]; then
-    wget -q "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VER}.tar.gz"
+
+ASTERISK_TAR="asterisk-${ASTERISK_VER}.tar.gz"
+
+# Funzione per verificare se l'archivio è valido e integro (non corrotto, non vuoto e non pagina 404 HTML)
+is_valid_tarball() {
+    local file="$1"
+    if [ -f "$file" ] && [ $(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo 0) -gt 5000000 ]; then
+        if tar -tzf "$file" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Mirror e sorgenti di download per Asterisk (Digium/Asterisk releases directory, root, branch current e GitHub)
+DOWNLOAD_URLS=(
+    "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VER}.tar.gz"
+    "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VER}.tar.gz"
+    "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20-current.tar.gz"
+    "https://downloads.asterisk.org/pub/telephony/asterisk/old-releases/asterisk-${ASTERISK_VER}.tar.gz"
+    "https://github.com/asterisk/asterisk/archive/refs/tags/${ASTERISK_VER}.tar.gz"
+)
+
+DOWNLOAD_SUCCESS=false
+
+if is_valid_tarball "$ASTERISK_TAR"; then
+    echo -e "${GREEN}✓ Archivio ${ASTERISK_TAR} già presente e verificato con successo.${NC}"
+    DOWNLOAD_SUCCESS=true
+else
+    rm -f "$ASTERISK_TAR"
+    for URL in "${DOWNLOAD_URLS[@]}"; do
+        echo -e "Tentativo download da: ${CYAN}${URL}${NC}..."
+        if command -v curl >/dev/null 2>&1; then
+            if curl -fSL --connect-timeout 15 --max-time 300 -o "$ASTERISK_TAR" "$URL"; then
+                if is_valid_tarball "$ASTERISK_TAR"; then
+                    echo -e "${GREEN}✓ Download completato e verificato con successo via curl.${NC}"
+                    DOWNLOAD_SUCCESS=true
+                    break
+                fi
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if wget -t 3 -T 20 -O "$ASTERISK_TAR" "$URL"; then
+                if is_valid_tarball "$ASTERISK_TAR"; then
+                    echo -e "${GREEN}✓ Download completato e verificato con successo via wget.${NC}"
+                    DOWNLOAD_SUCCESS=true
+                    break
+                fi
+            fi
+        fi
+        echo -e "${YELLOW}[AVVISO] Download da ${URL} non riuscito (es. 404 o timeout). Tentativo sul mirror successivo...${NC}"
+        rm -f "$ASTERISK_TAR"
+    done
 fi
-tar -zxf "asterisk-${ASTERISK_VER}.tar.gz"
-cd "asterisk-${ASTERISK_VER}"
+
+if [ "$DOWNLOAD_SUCCESS" != "true" ]; then
+    echo -e "${RED}[ERRORE CRITICO] Impossibile scaricare l'archivio di Asterisk ${ASTERISK_VER} da nessun mirror disponibile!${NC}"
+    exit 1
+fi
+
+echo -e "Estrazione archivio ${ASTERISK_TAR}..."
+tar -zxf "$ASTERISK_TAR"
+
+# Rilevamento dinamico della cartella estratta (asterisk-20.6.0 o asterisk-20.x.x)
+ASTERISK_SRC_DIR=$(tar -ztf "$ASTERISK_TAR" 2>/dev/null | head -n 1 | cut -f1 -d"/")
+if [ -z "$ASTERISK_SRC_DIR" ] || [ ! -d "/usr/src/$ASTERISK_SRC_DIR" ]; then
+    ASTERISK_SRC_DIR="asterisk-${ASTERISK_VER}"
+fi
+
+cd "/usr/src/$ASTERISK_SRC_DIR"
+echo -e "${GREEN}✓ Sorgenti pronti in /usr/src/$ASTERISK_SRC_DIR per la compilazione.${NC}"
 
 # Download moduli MP3 e prerequisiti
 contrib/scripts/get_mp3_source.sh || true
