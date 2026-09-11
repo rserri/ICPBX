@@ -367,8 +367,17 @@ log_exec "ASTERISK-BUILD-MAKE" make -j"\$(nproc)"
 log_exec "ASTERISK-INSTALL" make install
 log_exec "ASTERISK-SAMPLES" make samples
 
-# 6.5 Configurazione Servizio Asterisk (Supporto nativo systemd per Rocky Linux 9)
-echo "Configurazione del servizio di avvio systemd nativo per Asterisk (sostituzione completa di chkconfig)..."
+# 6.5 Configurazione Servizio Asterisk (Supporto Nativo Diretto systemd per Rocky Linux 9)
+echo "Configurazione del servizio di avvio nativo systemd per Asterisk (senza dipendenza da SysV o chkconfig)..."
+
+# ELIMINAZIONE DIRETTA DEGLI SCRIPT SYSV LEGACY:
+# Asterisk 'make install' e 'make samples' generano file init SysV obsoleti in /etc/init.d/asterisk.
+# Su Rocky Linux 9, la presenza di tali file induce 'systemctl enable' ad attivare un fallback
+# verso il wrapper deprecato /usr/lib/systemd/systemd-sysv-install (assente nelle distribuzioni moderne).
+# Rimuovendo qualsiasi traccia di script SysV legacy, 'systemctl enable' opera in modo puro e diretto
+# esclusivamente sul file di unità nativo /etc/systemd/system/asterisk.service, senza invocare alcun wrapper.
+echo "Pulizia completa script SysV legacy (/etc/init.d/asterisk*) per abilitazione systemd diretta..."
+rm -rf /etc/init.d/asterisk* /etc/rc.d/init.d/asterisk* /etc/default/asterisk /etc/sysconfig/asterisk.sysv
 
 # Creazione preventiva dell'utente dedicato asterisk
 if ! id asterisk >/dev/null 2>&1; then
@@ -402,6 +411,21 @@ LimitNPROC=65536
 WantedBy=multi-user.target
 EOF
 
+# Verifica posizionamento e validità del file di servizio in /etc/systemd/system/
+echo "Verifica del posizionamento del file di servizio in /etc/systemd/system/asterisk.service..."
+if [ ! -f "/etc/systemd/system/asterisk.service" ]; then
+    echo -e "\${RED}[ERRORE CRITICO] Il file di servizio /etc/systemd/system/asterisk.service non è presente o non è stato posizionato correttamente in /etc/systemd/system/!\${NC}" | tee -a "\$LOG_FILE"
+    exit 1
+fi
+
+if [ ! -s "/etc/systemd/system/asterisk.service" ]; then
+    echo -e "\${RED}[ERRORE CRITICO] Il file /etc/systemd/system/asterisk.service è vuoto (dimensione 0 byte)!\${NC}" | tee -a "\$LOG_FILE"
+    exit 1
+fi
+
+chmod 644 /etc/systemd/system/asterisk.service
+echo -e "\${GREEN}✓ File di servizio /etc/systemd/system/asterisk.service posizionato e verificato con successo (permessi 0644).\${NC}"
+
 # Configurazione cartelle e permessi di runtime per Asterisk
 mkdir -p /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk /etc/asterisk /etc/tmpfiles.d
 echo "d /run/asterisk 0750 asterisk asterisk" > /etc/tmpfiles.d/asterisk.conf
@@ -415,12 +439,25 @@ if [ -f "/etc/asterisk/asterisk.conf" ]; then
            /etc/asterisk/asterisk.conf || true
 fi
 
-# Ricarica configurazione systemd, abilitazione all'avvio e avvio del servizio con log_exec
-# Sostituzione nativa di chkconfig con i comandi systemctl conformi a Rocky Linux 9
+# Rimozione di sicurezza definitiva di tutti gli script SysV legacy prima di ricaricare il demone
+rm -rf /etc/init.d/asterisk* /etc/rc.d/init.d/asterisk*
+
+# Ricarica configurazione systemd
 log_exec "SYSTEMD-DAEMON-RELOAD" systemctl daemon-reload
+
+# Sostituzione dell'invocazione di systemd-sysv-install con il comando DIRETTO 'systemctl enable asterisk'
+# L'assenza di residui SysV garantisce l'attivazione nativa e diretta sul file /etc/systemd/system/asterisk.service
 log_exec "SYSTEMD-ENABLE-ASTERISK" systemctl enable asterisk
-log_exec "SYSTEMD-START-ASTERISK" systemctl start asterisk
-echo -e "\${GREEN}✓ Unità systemd per Asterisk abilitata ed avviata con successo tramite comandi nativi systemctl.\${NC}"
+
+# Verifica che il servizio sia abilitato direttamente in systemd
+if systemctl is-enabled asterisk >/dev/null 2>&1; then
+    echo -e "\${GREEN}✓ Verifica completata: asterisk.service risulta abilitato (enabled) direttamente in systemd.\${NC}"
+elif [ -L "/etc/systemd/system/multi-user.target.wants/asterisk.service" ]; then
+    echo -e "\${GREEN}✓ Symlink /etc/systemd/system/multi-user.target.wants/asterisk.service verificato con successo.\${NC}"
+fi
+
+log_exec "SYSTEMD-START-ASTERISK" systemctl restart asterisk
+echo -e "\${GREEN}✓ Unità systemd nativa per Asterisk abilitata ed avviata con successo direttamente tramite systemctl.\${NC}"
 
 # 7. Gestione Certificati SSL Let's Encrypt / Certbot & Nginx
 echo -e "\\n\${BLUE}[7/8] Automazione Certificati SSL Let's Encrypt & WebRTC WSS Gateway...\${NC}"
@@ -542,8 +579,8 @@ export const SIMULATED_INSTALL_STEPS: InstallStepLog[] = [
   },
   {
     stepIndex: 5,
-    stepName: 'Compilazione Asterisk 20.6 LTS & Servizio systemd (systemctl nativo)',
-    command: 'log_exec "ASTERISK-BUILD" make -j$(nproc) && log_exec "ASTERISK-INSTALL" make install && systemctl enable asterisk && systemctl start asterisk',
+    stepName: 'Compilazione Asterisk 20.6 LTS & Servizio systemd (systemctl nativo diretto)',
+    command: 'log_exec "ASTERISK-BUILD" make -j$(nproc) && log_exec "ASTERISK-INSTALL" make install && verify_service_file && systemctl enable asterisk && systemctl restart asterisk',
     status: 'success',
     logs: [
       '[log_exec: ASTERISK-CONFIGURE] [STDOUT] Checking compiler capabilities: gcc 11.4.1 (x86_64-redhat-linux)... OK',
@@ -556,11 +593,14 @@ export const SIMULATED_INSTALL_STEPS: InstallStepLog[] = [
       '[log_exec: ASTERISK-BUILD] [STDOUT] LINK [M] asterisk binary and shared libraries generated successfully.',
       '[log_exec: ASTERISK-INSTALL] [STDOUT] Installing Asterisk binaries into /usr/sbin/asterisk...',
       '[log_exec: ASTERISK-INSTALL] [STDOUT] Installing default configuration samples into /etc/asterisk...',
-      '[log_exec: SYSTEMD-SERVICE] [STDOUT] Created /etc/systemd/system/asterisk.service (chkconfig replaced with systemd unit).',
+      '[log_exec: SYSV-CLEANUP] [STDOUT] Purged legacy SysV init scripts (/etc/init.d/asterisk*) to eliminate systemd-sysv-install fallback trigger.',
+      '[log_exec: SYSTEMD-SERVICE] [STDOUT] Created /etc/systemd/system/asterisk.service (native systemd unit).',
+      '[log_exec: SYSTEMD-VERIFY] [STDOUT] Verified: /etc/systemd/system/asterisk.service is correctly placed and non-empty (permissions: 0644).',
       '[log_exec: SYSTEMD-TMPFILES] [STDOUT] Generated /etc/tmpfiles.d/asterisk.conf for persistent /run/asterisk permissions.',
       '[log_exec: SYSTEMD-DAEMON-RELOAD] [STDOUT] systemctl daemon-reload executed with return code 0.',
-      '[log_exec: SYSTEMD-ENABLE-ASTERISK] [STDOUT] systemctl enable asterisk: Created symlink /etc/systemd/system/multi-user.target.wants/asterisk.service.',
-      '[log_exec: SYSTEMD-START-ASTERISK] [STDOUT] systemctl start asterisk: Asterisk service successfully started (Active: active/running).',
+      '[log_exec: SYSTEMD-ENABLE-ASTERISK] [STDOUT] Direct systemctl enable asterisk: Created symlink /etc/systemd/system/multi-user.target.wants/asterisk.service → /etc/systemd/system/asterisk.service (no wrapper invoked).',
+      '[log_exec: SYSTEMD-VERIFY-ENABLED] [STDOUT] systemctl is-enabled asterisk: enabled (native direct activation OK).',
+      '[log_exec: SYSTEMD-START-ASTERISK] [STDOUT] systemctl restart asterisk: Asterisk PBX daemon successfully started (Active: active/running).',
       '[SUCCESS] All stdout and stderr streams captured in /var/log/pbx-install.log with exit code 0.'
     ],
     durationSec: 12.5
